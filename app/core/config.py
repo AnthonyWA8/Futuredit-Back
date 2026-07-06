@@ -57,7 +57,7 @@ class Settings:
 
     # --- CORS (para permitir que el frontend se conecte) ---
     CORS_ORIGINS = os.environ.get(
-        "CORS_ORIGINS", "http://localhost:5173,http://localhost:3000"
+        "CORS_ORIGINS", "http://localhost:5173,http://localhost:3000, https://futuredit-front.vercel.app"
     ).split(",")
 
     # --- Base de datos ---
