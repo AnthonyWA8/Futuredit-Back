@@ -40,6 +40,33 @@ def _total_versiones(session: Session, doc_id: int) -> int:
     )
 
 
+@router.get("", response_model=list[DocumentResponse])
+def listar_documentos(
+    project_id: int | None = None,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    """
+    Lista los documentos de un proyecto (si se indica project_id) o los
+    documentos personales del usuario (sin proyecto). Incluye el contenido
+    actual de cada uno, para poder reabrirlos en el editor.
+    """
+    query = select(Document)
+    if project_id is not None:
+        query = query.where(Document.project_id == project_id)
+    else:
+        query = query.where(Document.author_id == user.id).where(Document.project_id == None)  # noqa: E711
+    docs = session.exec(query.order_by(Document.created_at.desc())).all()
+    return [
+        DocumentResponse(
+            id=d.id, titulo=d.titulo,
+            contenido_actual=_contenido_actual(session, d.id),
+            total_versiones=_total_versiones(session, d.id),
+        )
+        for d in docs
+    ]
+
+
 @router.post("", response_model=DocumentResponse)
 def crear_documento(
     data: DocumentCreateRequest,
