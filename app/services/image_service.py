@@ -48,57 +48,83 @@ _RATIOS = {
 
 
 # ---------------------------------------------------------------------------
-# Proveedor recomendado: Hugging Face (Stable Diffusion real)
+# Proveedor recomendado: Hugging Face (Inference Providers, sistema 2026)
 # ---------------------------------------------------------------------------
 def _generar_huggingface(prompt: str, estilo: str, ratio: str, negative_prompt: str) -> bytes:
     """
-    Genera una imagen real con Stable Diffusion mediante la Inference API de
-    Hugging Face. Requiere un token gratuito (variable HF_API_TOKEN).
-    """
-    import os
+    Genera una imagen real con Stable Diffusion / FLUX mediante el sistema de
+    Inference Providers de Hugging Face (el que reemplazo a la antigua
+    Serverless Inference API en 2025-2026).
 
-    import requests
+    Usa la libreria oficial huggingface_hub, que enruta automaticamente la
+    peticion al mejor proveedor disponible (provider="auto") y hace failover si
+    uno falla. Requiere un token gratuito (variable HF_API_TOKEN).
+    """
+    import io
+    import os
 
     token = os.environ.get("HF_API_TOKEN", "")
     if not token:
         raise RuntimeError(
             "Falta HF_API_TOKEN. Consigue un token gratuito en "
-            "https://huggingface.co/settings/tokens y ponlo en el archivo .env."
+            "https://huggingface.co/settings/tokens (tipo 'Read' o fine-grained "
+            "con permiso 'Make calls to Inference Providers') y ponlo en el .env."
+        )
+
+    try:
+        from huggingface_hub import InferenceClient
+    except ImportError:
+        raise RuntimeError(
+            "Falta la libreria 'huggingface_hub'. Instalala con: "
+            "pip install huggingface_hub"
         )
 
     modelo = settings.HF_IMAGE_MODEL
-    url = f"https://api-inference.huggingface.co/models/{modelo}"
-
     modificador = _ESTILOS.get(estilo, "")
     prompt_final = f"{prompt}, {modificador}" if modificador else prompt
-    width, height = _RATIOS.get(ratio, (768, 768))
+    width, height = _RATIOS.get(ratio, (1024, 1024))
 
-    payload = {
-        "inputs": prompt_final,
-        "parameters": {
-            "width": width,
-            "height": height,
-        },
-    }
+    # provider="hf-inference" usa la infraestructura propia de Hugging Face,
+    # que es la que funciona con el tier gratuito para FLUX.1-schnell. Se evita
+    # "auto" porque enruta a proveedores externos de pago (como fal-ai).
+    client = InferenceClient(api_key=token, provider="hf-inference")
+
+    # Parametros opcionales solo si aplican (algunos proveedores los ignoran).
+    kwargs = {"model": modelo, "width": width, "height": height}
     if negative_prompt.strip():
-        payload["parameters"]["negative_prompt"] = negative_prompt
+        kwargs["negative_prompt"] = negative_prompt
 
-    resp = requests.post(
-        url,
-        headers={"Authorization": f"Bearer {token}", "Accept": "image/png"},
-        json=payload,
-        timeout=120,
-    )
-    # La API responde con la imagen en binario si todo va bien.
-    if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("image"):
-        return resp.content
-
-    # Si el modelo se esta cargando, Hugging Face devuelve un JSON con el estado.
     try:
-        detalle = resp.json()
-    except Exception:
-        detalle = resp.text
-    raise RuntimeError(f"Hugging Face devolvio un error ({resp.status_code}): {detalle}")
+        # Devuelve un objeto PIL.Image.
+        imagen = client.text_to_image(prompt_final, **kwargs)
+    except Exception as e:
+        # Imprime el error COMPLETO en la terminal para diagnostico claro.
+        import traceback
+        print("\n================ ERROR HUGGING FACE ================")
+        print(f"Tipo: {type(e).__name__}")
+        print(f"Mensaje: {e}")
+        traceback.print_exc()
+        print("===================================================\n")
+        # Mensajes claros para los errores mas comunes.
+        msg = str(e)
+        if "402" in msg or "quota" in msg.lower() or "credits" in msg.lower() or "payment" in msg.lower():
+            raise RuntimeError(
+                "Se agotaron los creditos mensuales gratuitos de Hugging Face "
+                "para Inference Providers. Cambia IMAGE_PROVIDER=demo en el .env "
+                "para seguir probando sin creditos."
+            )
+        if "401" in msg or "403" in msg or "authoriz" in msg.lower() or "token" in msg.lower():
+            raise RuntimeError(
+                "El token de Hugging Face no es valido o no tiene permiso para "
+                "Inference Providers. Genera uno nuevo (tipo 'Read') en "
+                "https://huggingface.co/settings/tokens."
+            )
+        raise RuntimeError(f"Hugging Face no pudo generar la imagen: {msg}")
+
+    # Convertir el objeto PIL.Image a bytes PNG.
+    buf = io.BytesIO()
+    imagen.save(buf, format="PNG")
+    return buf.getvalue()
 
 
 # ---------------------------------------------------------------------------

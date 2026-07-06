@@ -43,7 +43,7 @@ class Settings:
     # --- Hugging Face (generacion de imagenes con Stable Diffusion) ---
     HF_API_TOKEN = os.environ.get("HF_API_TOKEN", "")
     HF_IMAGE_MODEL = os.environ.get(
-        "HF_IMAGE_MODEL", "stabilityai/stable-diffusion-xl-base-1.0"
+        "HF_IMAGE_MODEL", "black-forest-labs/FLUX.1-schnell"
     )
 
     # --- Amazon Bedrock (opcional, documentado) ---
@@ -83,11 +83,28 @@ class Settings:
         algunos proveedores (como Supabase o Heroku) entregan la URL con el
         primer formato, que SQLAlchemy ya no acepta directamente.
         """
-        if self.DATABASE_URL:
-            url = self.DATABASE_URL
+        url = self.DATABASE_URL.strip() if self.DATABASE_URL else ""
+
+        if url:
+            # Error comun: pegar la URL del panel/API de Supabase (https://...)
+            # en lugar de la cadena de conexion de la base de datos.
+            if url.startswith("http://") or url.startswith("https://"):
+                raise ValueError(
+                    "DATABASE_URL parece ser una URL web (https://...), no una "
+                    "cadena de conexion de PostgreSQL. Debe empezar por "
+                    "'postgresql://'. En Supabase, copiala desde "
+                    "Project Settings > Database > Connection string > URI. "
+                    "Si no quieres usar PostgreSQL, deja DATABASE_URL vacia para "
+                    "usar SQLite."
+                )
+            # Normaliza postgres:// -> postgresql:// (Supabase, Heroku, etc.).
             if url.startswith("postgres://"):
                 url = url.replace("postgres://", "postgresql://", 1)
+            # Asegura el driver psycopg2 explicito para evitar ambiguedades.
+            if url.startswith("postgresql://"):
+                url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
             return url
+
         return f"sqlite:///{self.SQLITE_FILE}"
 
 

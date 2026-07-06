@@ -221,3 +221,28 @@ def asignar_rol(
         user_id=u.id, nombre=u.nombre, email=u.email,
         role=objetivo.role, avatar_url=u.avatar_url,
     )
+
+
+@router.delete("/{project_id}")
+def eliminar_proyecto(
+    project_id: int,
+    session: Session = Depends(get_session),
+    user: User = Depends(get_current_user),
+):
+    """Elimina un proyecto y todo lo asociado. Solo el ADMIN puede hacerlo."""
+    yo = get_member(session, project_id, user.id)
+    if yo is None or yo.role != Role.ADMIN:
+        raise HTTPException(
+            status_code=403,
+            detail="Solo el administrador del proyecto puede eliminarlo.",
+        )
+    # Borrar membresias e imagenes/documentos del proyecto, luego el proyecto.
+    for m in session.exec(select(ProjectMember).where(ProjectMember.project_id == project_id)).all():
+        session.delete(m)
+    for img in session.exec(select(GeneratedImage).where(GeneratedImage.project_id == project_id)).all():
+        session.delete(img)
+    proyecto = session.get(Project, project_id)
+    if proyecto:
+        session.delete(proyecto)
+    session.commit()
+    return {"ok": True, "mensaje": "Proyecto eliminado."}
