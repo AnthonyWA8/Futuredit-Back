@@ -23,10 +23,15 @@ app = FastAPI(
     ),
 )
 
-# CORS: permite que el frontend (por ejemplo en localhost:5173) llame a la API.
+# CORS: permite que el frontend (local o desplegado en Vercel) llame a la API.
+# - allow_origins: lista explicita (localhost y las URLs que definas en CORS_ORIGINS).
+# - allow_origin_regex: acepta automaticamente cualquier subdominio de vercel.app,
+#   lo que cubre el dominio de produccion y las URLs de preview sin tener que
+#   escribirlas una por una.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
+    allow_origin_regex=r"https://.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
